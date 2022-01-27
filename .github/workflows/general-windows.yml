@@ -1,4 +1,4 @@
-name: General-windows
+name: Rust-windows
 
 on: [push, pull_request]
 
