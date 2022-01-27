@@ -1,13 +1,36 @@
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
+
+pub fn is_reddit_gallery_link(url: &str) -> bool {
+    url.starts_with("https://www.reddit.com/gallery")
+}
+
+pub async fn pull_image_links_from_gallery(url: &str) -> Result<Vec<String>> {
+    let gallery_id = url
+        .strip_prefix("https://www.reddit.com/gallery/")
+        .ok_or(anyhow!("failed to strip gallery id from link"))?;
+    let data: Vec<GalleryApiData> = reqwest::get(format!(
+        "https://www.reddit.com/comments/{}.json",
+        &gallery_id
+    ))
+    .await?
+    .json()
+    .await?;
+    let mut all_images = vec![];
+    for gallery in data {
+        all_images.extend(gallery.get_largest_image_links());
+    }
+    Ok(all_images)
+}
 
 // TODO(david): This structure should be flattened
 #[derive(Deserialize)]
-pub struct GalleryApiData {
+struct GalleryApiData {
     data: GalleryData,
 }
 
 impl GalleryApiData {
-    pub fn get_largest_image_links(&self) -> Vec<String> {
+    fn get_largest_image_links(&self) -> Vec<String> {
         let mut links = vec![];
         for child in &self.data.children {
             if let Some(gallery_data) = &child.data.gallery_data {
