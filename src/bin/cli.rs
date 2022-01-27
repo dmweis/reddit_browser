@@ -77,3 +77,12 @@ async fn main() -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn fake_test() {
+        assert_eq!(0, 0);
+    }
+}
