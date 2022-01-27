@@ -1,6 +1,5 @@
-mod reddit_gallery_api;
-
 use anyhow::Result;
+use reddit_browser::reddit_gallery_api;
 use roux::util::{FeedOption, TimePeriod};
 use roux::Subreddit;
 
@@ -8,6 +7,7 @@ fn is_simple_reddit_image(url: &str) -> bool {
     url.starts_with("https://i.redd.it/")
 }
 
+#[derive(Debug)]
 enum ImagePostType {
     Image(String),
     Gallery(Vec<String>),
