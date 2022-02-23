@@ -87,6 +87,14 @@ impl ImageSearcher {
         self.images.get(self.selected_image).cloned()
     }
 
+    fn select_previous_image(&mut self) {
+        self.selected_image -= 1;
+    }
+
+    fn restart_slideshow(&mut self) {
+        self.selected_image = 0;
+    }
+
     async fn search_next(mut self) -> Result<Self> {
         // short circuit
         if self.images.len() > self.selected_image + 1 {
@@ -108,9 +116,10 @@ impl ImageSearcher {
                         .await
                         .map_err(|_| AppError::RedditApiError)?;
                     posts.extend(post_links);
-                }
-                if reddit_gallery_api::is_supported_plain_image_link(&url) {
+                } else if reddit_gallery_api::is_supported_plain_image_link(&url) {
                     posts.push(url.to_owned());
+                } else {
+                    println!("Unknown link type {:}", url);
                 }
             }
         }
@@ -136,7 +145,11 @@ enum Message {
     StartImageSearch,
     ImageSearchFinished(Result<ImageSearcher>),
     ImageFetched(Result<iced::image::Handle>, ImageSearcher),
-    SleepElapsed(ImageSearcher),
+    SlideshowTimerElapsed,
+    NextImage,
+    PreviousImage,
+    RestartSlideshow,
+    ToggleSlideshow,
 }
 
 enum AppState {
@@ -147,12 +160,18 @@ enum AppState {
     ImageSlideshow {
         image: iced::image::Handle,
         image_view_state: iced::image::viewer::State,
+        image_searcher: ImageSearcher,
     },
 }
 
 struct BunnyBrowser {
     state: AppState,
     subreddit_name: String,
+    slideshow_mode: bool,
+    previous_button_state: iced::button::State,
+    next_button_state: iced::button::State,
+    toggle_slideshow_button_state: iced::button::State,
+    restart_slideshow_button_state: iced::button::State,
 }
 
 impl BunnyBrowser {
@@ -162,6 +181,11 @@ impl BunnyBrowser {
                 text_input_state: iced::text_input::State::new(),
             },
             subreddit_name: String::from("Rabbits"),
+            slideshow_mode: false,
+            previous_button_state: iced::button::State::new(),
+            next_button_state: iced::button::State::new(),
+            toggle_slideshow_button_state: iced::button::State::new(),
+            restart_slideshow_button_state: iced::button::State::new(),
         }
     }
 }
@@ -208,14 +232,88 @@ impl iced::Application for BunnyBrowser {
                 self.state = AppState::ImageSlideshow {
                     image,
                     image_view_state: iced::image::viewer::State::new(),
+                    image_searcher: searcher,
                 };
-                iced::Command::perform(
-                    tokio::time::sleep(std::time::Duration::from_secs(2)),
-                    move |_| Message::SleepElapsed(searcher.clone()),
-                )
+                if self.slideshow_mode {
+                    iced::Command::perform(
+                        tokio::time::sleep(std::time::Duration::from_secs(5)),
+                        move |_| Message::SlideshowTimerElapsed,
+                    )
+                } else {
+                    iced::Command::none()
+                }
             }
-            Message::SleepElapsed(searcher) => {
-                iced::Command::perform(searcher.search_next(), Message::ImageSearchFinished)
+            Message::SlideshowTimerElapsed => {
+                if self.slideshow_mode {
+                    iced::Command::perform(tokio::task::yield_now(), move |_| Message::NextImage)
+                } else {
+                    iced::Command::none()
+                }
+            }
+            Message::NextImage => {
+                if let AppState::ImageSlideshow {
+                    image: _,
+                    image_view_state: _,
+                    image_searcher,
+                } = &self.state
+                {
+                    iced::Command::perform(
+                        image_searcher.clone().search_next(),
+                        Message::ImageSearchFinished,
+                    )
+                } else {
+                    iced::Command::none()
+                }
+            }
+            Message::PreviousImage => {
+                if let AppState::ImageSlideshow {
+                    image: _,
+                    image_view_state: _,
+                    image_searcher,
+                } = &self.state
+                {
+                    let mut image_searcher_clone = image_searcher.clone();
+                    image_searcher_clone.select_previous_image();
+                    let image_link = image_searcher_clone.get_image_link().unwrap();
+                    iced::Command::perform(fetch_image(image_link), move |res| {
+                        Message::ImageFetched(res, image_searcher_clone.clone())
+                    })
+                } else {
+                    iced::Command::none()
+                }
+            }
+            Message::ToggleSlideshow => {
+                self.slideshow_mode = !self.slideshow_mode;
+                if self.slideshow_mode {
+                    println!("Slideshow mode enabled");
+                } else {
+                    println!("Slideshow mode disabled");
+                }
+                if self.slideshow_mode {
+                    iced::Command::perform(
+                        tokio::time::sleep(std::time::Duration::from_secs(5)),
+                        move |_| Message::SlideshowTimerElapsed,
+                    )
+                } else {
+                    iced::Command::none()
+                }
+            }
+            Message::RestartSlideshow => {
+                if let AppState::ImageSlideshow {
+                    image: _,
+                    image_view_state: _,
+                    image_searcher,
+                } = &self.state
+                {
+                    let mut image_searcher_clone = image_searcher.clone();
+                    image_searcher_clone.restart_slideshow();
+                    let image_link = image_searcher_clone.get_image_link().unwrap();
+                    iced::Command::perform(fetch_image(image_link), move |res| {
+                        Message::ImageFetched(res, image_searcher_clone.clone())
+                    })
+                } else {
+                    iced::Command::none()
+                }
             }
         }
     }
@@ -243,14 +341,59 @@ impl iced::Application for BunnyBrowser {
             AppState::ImageSlideshow {
                 image,
                 image_view_state,
+                image_searcher: _,
             } => {
                 let content = iced::image::Viewer::new(image_view_state, image.clone());
-                iced::Container::new(content)
+
+                // toolbar
+
+                let prev_button =
+                    iced::Button::new(&mut self.previous_button_state, iced::Text::new("Previous"))
+                        .height(iced::Length::Units(40))
+                        .on_press(Message::PreviousImage);
+                let toggle_slideshow_button = iced::Button::new(
+                    &mut self.toggle_slideshow_button_state,
+                    iced::Text::new("Toggle slideshow"),
+                )
+                .height(iced::Length::Units(40))
+                .on_press(Message::ToggleSlideshow);
+                let restart_slideshow_button = iced::Button::new(
+                    &mut self.restart_slideshow_button_state,
+                    iced::Text::new("Restart slideshow"),
+                )
+                .height(iced::Length::Units(40))
+                .on_press(Message::RestartSlideshow);
+                let next_button =
+                    iced::Button::new(&mut self.next_button_state, iced::Text::new("Next"))
+                        .height(iced::Length::Units(40))
+                        .on_press(Message::NextImage);
+
+                let row = iced::Row::new()
+                    .align_items(iced::Align::Center)
                     .width(iced::Length::Fill)
-                    .height(iced::Length::Fill)
-                    .center_x()
-                    .center_y()
-                    .into()
+                    .padding(10)
+                    .spacing(10)
+                    .push(prev_button)
+                    .push(toggle_slideshow_button)
+                    .push(restart_slideshow_button)
+                    .push(next_button);
+
+                let column = iced::Column::new()
+                    .width(iced::Length::Fill)
+                    .align_items(iced::Align::Center)
+                    .push(
+                        iced::Container::new(row)
+                            .width(iced::Length::Fill)
+                            .center_y(),
+                    )
+                    .push(
+                        iced::Container::new(content)
+                            .width(iced::Length::Fill)
+                            .height(iced::Length::Fill)
+                            .center_x()
+                            .center_y(),
+                    );
+                column.into()
             }
             AppState::InitialLoading => {
                 let text = iced::Text::new("Loading")
