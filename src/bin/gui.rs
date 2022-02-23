@@ -143,8 +143,8 @@ enum AppState {
     Start {
         text_input_state: iced::text_input::State,
     },
-    Loading,
-    Loaded {
+    InitialLoading,
+    ImageSlideshow {
         image: iced::image::Handle,
         image_view_state: iced::image::viewer::State,
     },
@@ -191,7 +191,7 @@ impl iced::Application for BunnyBrowser {
                 iced::Command::none()
             }
             Message::StartImageSearch => {
-                self.state = AppState::Loading;
+                self.state = AppState::InitialLoading;
                 let image_searcher = ImageSearcher::new(&self.subreddit_name);
                 iced::Command::perform(image_searcher.search_next(), Message::ImageSearchFinished)
             }
@@ -205,7 +205,7 @@ impl iced::Application for BunnyBrowser {
             }
             Message::ImageFetched(image_result, searcher) => {
                 let image = image_result.unwrap();
-                self.state = AppState::Loaded {
+                self.state = AppState::ImageSlideshow {
                     image,
                     image_view_state: iced::image::viewer::State::new(),
                 };
@@ -240,7 +240,7 @@ impl iced::Application for BunnyBrowser {
                     .center_y()
                     .into()
             }
-            AppState::Loaded {
+            AppState::ImageSlideshow {
                 image,
                 image_view_state,
             } => {
@@ -252,7 +252,7 @@ impl iced::Application for BunnyBrowser {
                     .center_y()
                     .into()
             }
-            AppState::Loading => {
+            AppState::InitialLoading => {
                 let text = iced::Text::new("Loading")
                     .horizontal_alignment(iced::HorizontalAlignment::Center)
                     .size(40);
