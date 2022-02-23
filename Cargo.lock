@@ -2299,6 +2299,7 @@ dependencies = [
  "roux",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
 ]
 

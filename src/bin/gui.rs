@@ -1,9 +1,19 @@
-use anyhow::Result;
 use iced::Application;
 use reddit_browser::reddit_gallery_api;
 use roux::util::{FeedOption, TimePeriod};
 use roux::Subreddit;
 use std::collections::VecDeque;
+use thiserror::Error;
+
+#[derive(Error, Debug, Clone)]
+pub enum AppError {
+    #[error("error fetching image")]
+    ImageFetchingError,
+    #[error("error talking to the reddit api")]
+    RedditApiError,
+}
+
+type Result<T> = std::result::Result<T, AppError>;
 
 pub fn main() -> iced::Result {
     BunnyBrowser::run(iced::Settings::default())
@@ -11,7 +21,12 @@ pub fn main() -> iced::Result {
 
 async fn fetch_image(url: String) -> Result<iced::image::Handle> {
     println!("Fetching {}", url);
-    let bytes = reqwest::get(&url).await?.bytes().await?;
+    let bytes = reqwest::get(&url)
+        .await
+        .map_err(|_| AppError::ImageFetchingError)?
+        .bytes()
+        .await
+        .map_err(|_| AppError::ImageFetchingError)?;
     Ok(iced::image::Handle::from_memory(bytes.as_ref().to_vec()))
 }
 
@@ -73,15 +88,17 @@ impl ImageSearcher {
         let search_results = self
             .subreddit
             .top(25, Some(self.next_feed_search_options.clone()))
-            .await?;
+            .await
+            .map_err(|_| AppError::RedditApiError)?;
         let mut posts = vec![];
         for post in search_results.data.children {
             if let Some(url) = post.data.url {
                 // image post
                 if reddit_gallery_api::is_reddit_gallery_link(&url) {
                     // Should this save the gallery link?
-                    let post_links =
-                        reddit_gallery_api::pull_image_links_from_gallery(&url).await?;
+                    let post_links = reddit_gallery_api::pull_image_links_from_gallery(&url)
+                        .await
+                        .map_err(|_| AppError::RedditApiError)?;
                     posts.extend(post_links);
                 }
                 if reddit_gallery_api::is_supported_plain_image_link(&url) {
@@ -104,14 +121,19 @@ impl ImageSearcher {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Message {
+    TextInputChanged(String),
+    StartImageSearch,
     ImageSearchFinished(Result<ImageSearcher>),
     ImageFetched(Result<iced::image::Handle>, ImageSearcher),
     SleepElapsed(ImageSearcher),
 }
 
 enum AppState {
+    Start {
+        text_input_state: iced::text_input::State,
+    },
     Loading,
     Loaded {
         image: iced::image::Handle,
@@ -121,12 +143,16 @@ enum AppState {
 
 struct BunnyBrowser {
     state: AppState,
+    subreddit_name: String,
 }
 
 impl BunnyBrowser {
     fn new() -> Self {
         Self {
-            state: AppState::Loading,
+            state: AppState::Start {
+                text_input_state: iced::text_input::State::new(),
+            },
+            subreddit_name: String::from("Rabbits"),
         }
     }
 }
@@ -138,11 +164,7 @@ impl iced::Application for BunnyBrowser {
 
     fn new(_flags: ()) -> (Self, iced::Command<Self::Message>) {
         let app = BunnyBrowser::new();
-        let image_searcher = ImageSearcher::new("Rabbits");
-        (
-            app,
-            iced::Command::perform(image_searcher.search_next(), Message::ImageSearchFinished),
-        )
+        (app, iced::Command::none())
     }
 
     fn title(&self) -> String {
@@ -155,6 +177,15 @@ impl iced::Application for BunnyBrowser {
         _clipboard: &mut iced::Clipboard,
     ) -> iced::Command<Self::Message> {
         match message {
+            Message::TextInputChanged(input) => {
+                self.subreddit_name = input;
+                iced::Command::none()
+            }
+            Message::StartImageSearch => {
+                self.state = AppState::Loading;
+                let image_searcher = ImageSearcher::new(&self.subreddit_name);
+                iced::Command::perform(image_searcher.search_next(), Message::ImageSearchFinished)
+            }
             Message::ImageSearchFinished(image_search_result) => {
                 let searcher = image_search_result.unwrap();
                 let image_link = searcher.get_image_link().unwrap();
@@ -182,6 +213,24 @@ impl iced::Application for BunnyBrowser {
 
     fn view(&mut self) -> iced::Element<Self::Message> {
         match &mut self.state {
+            AppState::Start { text_input_state } => {
+                let input_field = iced::text_input::TextInput::new(
+                    text_input_state,
+                    "Subreddit name",
+                    &self.subreddit_name,
+                    Message::TextInputChanged,
+                )
+                .size(30)
+                .width(iced::Length::Units(300))
+                .padding(15)
+                .on_submit(Message::StartImageSearch);
+                iced::Container::new(input_field)
+                    .width(iced::Length::Fill)
+                    .height(iced::Length::Fill)
+                    .center_x()
+                    .center_y()
+                    .into()
+            }
             AppState::Loaded {
                 image,
                 image_view_state,
@@ -194,7 +243,17 @@ impl iced::Application for BunnyBrowser {
                     .center_y()
                     .into()
             }
-            AppState::Loading => iced::Text::new("Loading").size(40).into(),
+            AppState::Loading => {
+                let text = iced::Text::new("Loading")
+                    .horizontal_alignment(iced::HorizontalAlignment::Center)
+                    .size(40);
+                iced::Container::new(text)
+                    .width(iced::Length::Fill)
+                    .height(iced::Length::Fill)
+                    .center_x()
+                    .center_y()
+                    .into()
+            }
         }
     }
 }
