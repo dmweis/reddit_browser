@@ -2,7 +2,6 @@ use iced::Application;
 use reddit_browser::reddit_gallery_api;
 use roux::util::{FeedOption, TimePeriod};
 use roux::Subreddit;
-use std::collections::VecDeque;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -33,7 +32,8 @@ async fn fetch_image(url: String) -> Result<iced::image::Handle> {
 struct ImageSearcher {
     subreddit: Subreddit,
     next_feed_search_options: FeedOption,
-    images: VecDeque<String>,
+    images: Vec<String>,
+    selected_image: usize,
 }
 
 impl Clone for ImageSearcher {
@@ -42,6 +42,7 @@ impl Clone for ImageSearcher {
             subreddit: Subreddit::new(&self.subreddit.name),
             next_feed_search_options: self.next_feed_search_options.clone(),
             images: self.images.clone(),
+            selected_image: self.selected_image,
         }
     }
 }
@@ -63,26 +64,33 @@ impl ImageSearcher {
         Self {
             subreddit,
             next_feed_search_options,
-            images: VecDeque::new(),
+            images: vec![],
+            selected_image: 0,
         }
     }
 
-    fn with_next_search(subreddit: Subreddit, next_feed: FeedOption, images: Vec<String>) -> Self {
+    fn with_next_search(
+        subreddit: Subreddit,
+        next_feed: FeedOption,
+        images: Vec<String>,
+        selected_image: usize,
+    ) -> Self {
         Self {
             subreddit,
             next_feed_search_options: next_feed,
-            images: images.into(),
+            images,
+            selected_image,
         }
     }
 
     fn get_image_link(&self) -> Option<String> {
-        self.images.get(0).cloned()
+        self.images.get(self.selected_image).cloned()
     }
 
     async fn search_next(mut self) -> Result<Self> {
         // short circuit
-        if !self.images.is_empty() {
-            self.images.pop_front();
+        if self.images.len() > self.selected_image + 1 {
+            self.selected_image += 1;
             return Ok(self);
         }
         let search_results = self
@@ -117,6 +125,7 @@ impl ImageSearcher {
             self.subreddit,
             next_feed_options,
             posts,
+            self.selected_image,
         ))
     }
 }
