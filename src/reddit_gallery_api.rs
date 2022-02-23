@@ -1,6 +1,18 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
+fn is_simple_reddit_image(url: &str) -> bool {
+    url.starts_with("https://i.redd.it/")
+}
+
+fn is_simple_imgur_image(url: &str) -> bool {
+    url.starts_with("https://i.imgur.com/")
+}
+
+pub fn is_supported_plain_image_link(url: &str) -> bool {
+    is_simple_reddit_image(url) || is_simple_imgur_image(url)
+}
+
 pub fn is_reddit_gallery_link(url: &str) -> bool {
     url.starts_with("https://www.reddit.com/gallery")
 }

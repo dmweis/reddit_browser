@@ -5,10 +5,6 @@ use roux::util::{FeedOption, TimePeriod};
 use roux::Subreddit;
 use std::collections::VecDeque;
 
-fn is_simple_reddit_image(url: &str) -> bool {
-    url.starts_with("https://i.redd.it/")
-}
-
 pub fn main() -> iced::Result {
     BunnyBrowser::run(iced::Settings::default())
 }
@@ -88,7 +84,7 @@ impl ImageSearcher {
                         reddit_gallery_api::pull_image_links_from_gallery(&url).await?;
                     posts.extend(post_links);
                 }
-                if is_simple_reddit_image(&url) {
+                if reddit_gallery_api::is_supported_plain_image_link(&url) {
                     posts.push(url.to_owned());
                 }
             }

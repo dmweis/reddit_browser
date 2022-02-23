@@ -3,10 +3,6 @@ use reddit_browser::reddit_gallery_api;
 use roux::util::{FeedOption, TimePeriod};
 use roux::Subreddit;
 
-fn is_simple_reddit_image(url: &str) -> bool {
-    url.starts_with("https://i.redd.it/")
-}
-
 #[derive(Debug)]
 enum ImagePostType {
     Image(String),
@@ -46,7 +42,7 @@ impl RedditImageBrowser {
                         reddit_gallery_api::pull_image_links_from_gallery(&url).await?;
                     posts.push(ImagePostType::Gallery(post_links));
                 }
-                if is_simple_reddit_image(&url) {
+                if reddit_gallery_api::is_supported_plain_image_link(&url) {
                     posts.push(ImagePostType::Image(url.to_owned()));
                 }
             }
