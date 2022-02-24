@@ -101,12 +101,16 @@ impl ImageSearcher {
             self.selected_image += 1;
             return Ok(self);
         }
+        println!(
+            "Fetching next batch of images\nCurrent image count {}",
+            self.images.len()
+        );
         let search_results = self
             .subreddit
             .top(25, Some(self.next_feed_search_options.clone()))
             .await
             .map_err(|_| AppError::RedditApiError)?;
-        let mut posts = vec![];
+        let mut posts = self.images.clone();
         for post in search_results.data.children {
             if let Some(url) = post.data.url {
                 // image post
@@ -123,7 +127,10 @@ impl ImageSearcher {
                 }
             }
         }
+        // move to next image after fetch
+        self.selected_image += 1;
 
+        println!("Image count after fetching {}", posts.len());
         let after_search_token = search_results.data.after.unwrap();
         let next_feed_options = self
             .next_feed_search_options
